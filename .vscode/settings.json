@@ -1,0 +1,5 @@
+{
+    "debug.node.autoAttach": "on",
+    "file-alias.contentMatch": "<Script file=\"(.+).lua\"",
+    "file-alias.contentMatchFormat": "[{1}]"
+}

@@ -4,7 +4,7 @@
 	"description": "Add a display name to the file",
 	"author": "sumneko",
 	"license": "MIT",
-	"version": "1.0.0",
+	"version": "1.0.0-TEST",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/sumneko/vscode-file-alias"
@@ -49,8 +49,17 @@
 			}
 		}
 	},
+	"scripts": {
+		"vscode:prepublish": "npm run compile",
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./"
+	},
 	"devDependencies": {
 		"@types/node": "^16.10.3",
-		"@types/vscode": "^1.52.0"
+		"@types/vscode": "^1.52.0",
+		"@typescript-eslint/eslint-plugin": "^4.16.0",
+		"@typescript-eslint/parser": "^4.16.0",
+		"eslint": "^7.21.0",
+		"typescript": "^4.4.3"
 	}
 }

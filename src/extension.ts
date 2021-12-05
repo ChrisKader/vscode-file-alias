@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { ConfigurationChangeEvent, EventEmitter, FileDecoration, RelativePattern, Uri, window, workspace } from 'vscode';
+import { ConfigurationChangeEvent, EventEmitter, FileDecoration, RelativePattern, Uri, window, workspace, ThemeColor } from 'vscode';
 
 // hack VSCode: src\vs\workbench\api\common\extHostTypes.ts:2913
 // @ts-ignore
@@ -11,53 +11,62 @@ FileDecoration.validate = (d: FileDecoration): void => {
         throw new Error(`The decoration is empty`);
     }
 }
-
+const compileTime = new Date().toISOString()
 class FileAlias {
-    private lfMap:   Map<string, string>;
+    private lfMap: Map<string, string>;
     private visited: Map<string, boolean>;
-    private uri:     Uri;
-    private lfUri:   Uri;
-    changeEmitter:   EventEmitter<undefined | Uri | Uri[]>;
+    private uri: Uri;
+    private lfUri?: Uri;
+    changeEmitter: EventEmitter<undefined | Uri | Uri[]>;
 
     async getAliasByListFile(uri: Uri): Promise<string> {
-        return this.lfMap.get(uri.toString());
+        return this.lfMap.get(uri.toString())!;
     }
 
-    async getAliasByContent(uri: Uri): Promise<string> {
-        let pattern: string = workspace.getConfiguration('file-alias', this.uri).get('contentMatch');
-        if (!pattern || pattern == '') { return undefined };
+    async getAliasByContent(uri: Uri): Promise<FileDecoration|undefined> {
+        console.log(`1 getAliasByContent ${uri.fsPath}`)
+        let pattern: string = workspace.getConfiguration('file-alias', this.uri).get('contentMatch')!;
+        if (!pattern || pattern == '') { return undefined! };
 
-        let content: string;
+        let content = ''
         try {
             content = (await workspace.fs.readFile(uri))?.toString();
-        } catch {};
-        if (!content) { return undefined };
+        } catch { };
+        if (!content || content.length < 1) { return undefined };
 
-        let re = new RegExp(pattern);
-        if (!re) { return undefined };
+        let re = new RegExp(/<(?<type>(?:Script)|(?:Include)) file="(?<file>.+\.[a-z]{3})"\/>/gm);
+        
+        if (!re) { return undefined! };
 
-        let matchs = content.match(re);
-
-        let name: string;
+        let matchs = [...content.matchAll(re)].map(v => {
+            return {
+                type: v .groups!['type'],
+                file: v.groups!['file']
+            }
+        })
+        if(matchs.length < 1){return undefined}
+        let tooltip = ''
+        let badge = ''
+        let propegate = false
+        let color = new ThemeColor('terminal.ansiBrightCyan')
         let format: string = workspace.getConfiguration('file-alias', this.uri).get('contentMatchFormat', '');
-        if (format != '') {
-            name = format.replace(/{(\d+)}/g, (_, match) => {
-                return matchs[match];
-            })
-        } else {
-            name = matchs?.[1];
-        }
-        if (!name) { return undefined };
-
-        return name;
+        badge = `[${matchs.length.toString()}]`
+        tooltip = `\n${matchs.map(v=>{
+            return `[${v.type.substring(0,1)}] ${v.file}`
+        }).join('\n')}`
+        return new FileDecoration(
+            badge,
+            tooltip,
+            color 
+        )
     }
 
-    async getDecoration(uri: Uri): Promise<FileDecoration> {
+    async getDecoration(uri: Uri): Promise<FileDecoration|undefined> {
         this.visited.set(uri.toString(), true);
         let alias = await this.getAliasByListFile(uri)
-                 || await this.getAliasByContent(uri);
-        if (!alias) { return undefined };
-        return new FileDecoration(alias);
+            || await this.getAliasByContent(uri);
+        if (!alias) { return undefined! };
+        return await this.getAliasByContent(uri)!
     }
 
     async refreshVisited() {
@@ -72,19 +81,21 @@ class FileAlias {
     async refreshListFile() {
         this.lfMap.clear();
 
-        let listFilePath: string = workspace.getConfiguration('file-alias', this.uri).get('listFile');
+        let listFilePath = <string>workspace.getConfiguration('file-alias', this.uri).get('listFile');
         if (!listFilePath || listFilePath == '') { return };
         this.lfUri = Uri.file(path.resolve(this.uri.fsPath, listFilePath));
 
-        let listFile: string;
+        let listFile: string = ''
         try {
             listFile = (await workspace.fs.readFile(this.lfUri))?.toString();
         } catch (e) {
             window.showErrorMessage((e as Error).message);
         };
-        if (!listFile) { return };
+        if (!listFile || listFile.length < 1) { return };
 
-        let json: Object;
+        let json:{
+            [key:string]:string
+        } = {}
         try {
             json = JSON.parse(listFile);
         } catch (e) {
@@ -111,7 +122,7 @@ class FileAlias {
     async initWorkSpace() {
         await this.refreshListFile();
 
-        let watcher = workspace.createFileSystemWatcher(new RelativePattern(this.uri, '**/*'));
+        let watcher = workspace.createFileSystemWatcher(new RelativePattern(workspace.getWorkspaceFolder(this.uri)!, '**/*.toc'));
         watcher.onDidChange(this.fileWatcher, this);
         watcher.onDidCreate(this.fileWatcher, this);
         watcher.onDidDelete(this.fileWatcher, this);
@@ -125,14 +136,14 @@ class FileAlias {
 
         window.registerFileDecorationProvider({
             onDidChangeFileDecorations: this.changeEmitter.event,
-            provideFileDecoration:      async (uri: Uri): Promise<FileDecoration> => { return await this.getDecoration(uri) },
+            provideFileDecoration: async (uri: Uri): Promise<FileDecoration|undefined> => { return await this.getDecoration(uri) },
         })
     }
 
     constructor(uri: Uri) {
-        this.uri           = uri;
-        this.lfMap         = new Map();
-        this.visited       = new Map();
+        this.uri = uri;
+        this.lfMap = new Map();
+        this.visited = new Map();
         this.changeEmitter = new EventEmitter();
     }
 }
